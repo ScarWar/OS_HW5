@@ -19,7 +19,7 @@
 
 MODULE_LICENSE("GPL");
 
-#define PRINT_ERROR(s) printk("[Error] - %s\n", s);
+#define PRINT_ERROR(s) printk("[Error] - %s\n", s)
 
 struct chardev_info {
     spinlock_t lock;
@@ -304,7 +304,7 @@ static long device_ioctl(struct file *file,			/* struct inode*  inode */
     	spin_unlock_irqrestore(&device_info.lock, flags);
     	return SUCCESS;
     }
-
+	PRINT_ERROR("Invalid arguement");
     return -EINVAL;
 }
 
@@ -348,11 +348,6 @@ static int __init message_slot_init(void) {
     printk("mknod /dev/%s c %d 0\n", DEVICE_FILE_NAME, MAJOR_NUM);
     printk("You can echo/cat to/from the device file.\n");
     printk("Dont forget to rm the device file and rmmod when you're done\n");
-
-    global_list = create_list();
-    if(global_list == NULL){
-    	return -1;
-    }
 
     return SUCCESS;
 }

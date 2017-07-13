@@ -8,7 +8,7 @@
 #include <string.h>
 #include <errno.h>
 
-#define PRINT_ERROR(s) printf("[Error] - %s, %s\n", s, strerror(errno));
+#define PRINT_ERROR(s) printf("[Error] - %s, %s\n", s, strerror(errno))
 
 int main(int argc, char ** argv) {
     int fd, __n_byte_read, channel_index;
