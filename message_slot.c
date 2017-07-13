@@ -1,14 +1,10 @@
 /* Declare what kind of code we want from the header files
    Defining __KERNEL__ and MODULE allows us to access kernel-level
    code not usually available to userspace programs. */
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "CannotResolve"
 #undef __KERNEL__
 #define __KERNEL__ /* We're part of the kernel */
 #undef MODULE
 #define MODULE     /* Not a permanent part, though. */
-
-/* ***** Example w/ minimal error handling - for ease of reading ***** */
 
 //Our custom definitions of IOCTL operations
 #include "message_slot.h"
@@ -29,13 +25,14 @@ struct chardev_info {
     spinlock_t lock;
 };
 
-static LinkedList *global_list = NULL;
+static LinkedList global_list;
 
 /***************** message slot functions ********************/
 
 Node *create_node(unsigned long id) {
-    Node *node = (Node *) kmalloc(sizeof(Node), GFP_KERNEL);
-    if (!node) {
+	Node *node;
+    node = (Node *) kmalloc(sizeof(Node), GFP_KERNEL);
+    if (node == NULL) {
     	PRINT_ERROR("Failed to create node");
         return NULL;
     }
@@ -95,6 +92,7 @@ int add(LinkedList *list, Node* node){
 }
 
 int pop(LinkedList *list){
+	Node *p;
 	if(list == NULL){
 		PRINT_ERROR("Null pointer argument");
 		return -1;
@@ -102,7 +100,6 @@ int pop(LinkedList *list){
 		PRINT_ERROR("Empty list");
 		return -1;
 	}
-	Node *p;
 	p = list->head;
 	list->head = p->next;
 	list->size--;
@@ -114,11 +111,11 @@ int pop(LinkedList *list){
 }
 
 Node* get_node_by_id(LinkedList *list, int id){
+	Node *p;	
 	if(list == NULL){
 		PRINT_ERROR("Null pointer argument");
 		return NULL;	
 	}
-	Node *p;
 	p = list->head;
 	for(; p->next != NULL; p = p->next){
 		if(p->msgs.id == id)
@@ -147,6 +144,8 @@ static unsigned long flags; // for spinlock
 
 /* process attempts to open the device file */
 static int device_open(struct inode *inode, struct file *file) {
+	unsigned long id;
+	Node *p;
     printk("Device_open(%p)\n", file);
 
     /*
@@ -154,9 +153,8 @@ static int device_open(struct inode *inode, struct file *file) {
      */
     spin_lock_irqsave(&device_info.lock, flags);
 
-    int id = file->f_inode->i_ino;
-	Node *p;
-    p = get_node_by_id(global_list,id);
+    id = file->f_inode->i_ino;
+    p = get_node_by_id(&global_list,id);
     if(p == NULL){
     	p = create_node(id);
     	if(p == NULL){
@@ -164,7 +162,7 @@ static int device_open(struct inode *inode, struct file *file) {
     		spin_unlock_irqrestore(&device_info.lock, flags);
     		return -EBUSY;
     	}
-    	if(add(global_list, p) < 0){
+    	if(add(&global_list, p) < 0){
     		PRINT_ERROR("Failed to add file to list");
     		spin_unlock_irqrestore(&device_info.lock, flags);
     		return -EBUSY;	
@@ -188,11 +186,12 @@ static ssize_t device_read(	struct file *file, 		/* see include/linux/fs.h 					
 							char __user * buffer,	/* buffer to be filled with data 			*/
 						    size_t length,			/* length of the buffer 					*/
 						    loff_t * offset) {		/* read doesnt really do anything (for now) */
+	unsigned long i;
+	Node *p;
 	if(buffer == NULL || file == NULL || offset == NULL){
 		PRINT_ERROR("Null pointer argument");
 		return -EINVAL;
 	}
-	int i;
 	printk("device_read(%p,%d)\n", file, length);
 	/*
      * We don't want to talk to two processes at the same time
@@ -200,8 +199,7 @@ static ssize_t device_read(	struct file *file, 		/* see include/linux/fs.h 					
 	spin_lock_irqsave(&device_info.lock, flags);
 	
 	/* Find message slot in the list */
-	Node *p;
-	p = get_node_by_id(global_list, file->f_inode->i_ino);
+	p = get_node_by_id(&global_list, file->f_inode->i_ino);
 	if(p == NULL){
 		PRINT_ERROR("No message slot available");
 		spin_unlock_irqrestore(&device_info.lock, flags);
@@ -236,11 +234,12 @@ static ssize_t device_write(struct file *file,			/* see include/linux/fs.h 					
 							const char __user * buffer, /* buffer to be filled with data 			*/
 							size_t length, 				/* length of the buffer 					*/
 							loff_t * offset) {			/* read doesnt really do anything (for now) */
+	unsigned long i;
+	Node *p;
 	if(buffer == NULL || file == NULL || offset == NULL){
 		PRINT_ERROR("Null pointer argument");
 		return -EINVAL;
 	}
-	int i;
 	printk("device_write(%p,%d)\n", file, length);
 	/*
      * We don't want to talk to two processes at the same time
@@ -248,8 +247,7 @@ static ssize_t device_write(struct file *file,			/* see include/linux/fs.h 					
 	spin_lock_irqsave(&device_info.lock, flags);
 
 	/* Find message slot in the list */
-	Node *p;
-	p = get_node_by_id(global_list, file->f_inode->i_ino);
+	p = get_node_by_id(&global_list, file->f_inode->i_ino);
 	if(p == NULL){
 		PRINT_ERROR("No message slot available");
 		spin_unlock_irqrestore(&device_info.lock, flags);
@@ -294,7 +292,7 @@ static long device_ioctl(struct file *file,			/* struct inode*  inode */
     if (IOCTL_SET_CHA == ioctl_num && ioctl_param < 4) {
     	spin_lock_irqsave(&device_info.lock, flags);
         
-        p = get_node_by_id(global_list, file->f_inode->i_ino);
+        p = get_node_by_id(&global_list, file->f_inode->i_ino);
     	if(p == NULL){
 			PRINT_ERROR("No message slot available");
 			spin_unlock_irqrestore(&device_info.lock, flags);
@@ -327,10 +325,12 @@ struct file_operations Fops = {
  * Initialize the module - Register the character device */
 static int __init message_slot_init(void) {
     unsigned int rc = 0;
+	global_list.size = 0;
+	global_list.head = NULL;
     /* init dev struct*/
     memset(&device_info, 0, sizeof(struct chardev_info));
     spin_lock_init(&device_info.lock);
-
+	
     /* Register a character device. Get newly assigned major num */
     rc = register_chrdev(MAJOR_NUM, DEVICE_RANGE_NAME, &Fops /* our own file operations struct */);
 
@@ -338,7 +338,7 @@ static int __init message_slot_init(void) {
      * Negative values signify an error
      */
     if (rc < 0) {
-        printk(KERN_ALERT, "%s failed with %d\n", "Sorry, registering the character device ", MAJOR_NUM);
+        printk(KERN_ALERT "%s failed with %d\n", "Sorry, registering the character device ", MAJOR_NUM);
         return -1;
     }
 
@@ -361,7 +361,7 @@ static void __exit message_slot_cleanup(void)
      */
 
     spin_lock_irqsave(&device_info.lock, flags);
-    destroy_list(global_list);
+    destroy_list(&global_list);
     spin_unlock_irqrestore(&device_info.lock, flags);
     
     unregister_chrdev(MAJOR_NUM, DEVICE_RANGE_NAME);
@@ -372,4 +372,3 @@ static void __exit message_slot_cleanup(void)
 module_init(message_slot_init);
 module_exit(message_slot_cleanup);
 
-#pragma clang diagnostic pop
