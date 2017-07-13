@@ -349,6 +349,11 @@ static int __init message_slot_init(void) {
     printk("You can echo/cat to/from the device file.\n");
     printk("Dont forget to rm the device file and rmmod when you're done\n");
 
+    global_list = create_list();
+    if(global_list == NULL){
+    	return -1;
+    }
+
     return SUCCESS;
 }
 
