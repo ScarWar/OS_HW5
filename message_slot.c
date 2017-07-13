@@ -20,11 +20,10 @@
 #include <linux/string.h>   /* for memset. NOTE - not string.h!*/
 #include <linux/slab.h>
 #include <linux/spinlock.h>
-#include <errno.h>
 
 MODULE_LICENSE("GPL");
 
-#define PRINT_ERROR(s) printk("[Error] - %s, %s\n", s, strerror(errno));
+#define PRINT_ERROR(s) printk("[Error] - %s\n", s);
 
 struct chardev_info {
     spinlock_t lock;
@@ -34,7 +33,7 @@ static LinkedList *global_list = NULL;
 
 /***************** message slot functions ********************/
 
-Node *create_node(int id) {
+Node *create_node(unsigned long id) {
     Node *node = (Node *) kmalloc(sizeof(Node), GFP_KERNEL);
     if (!node) {
     	PRINT_ERROR("Failed to create node");
@@ -66,20 +65,21 @@ int add_msg(Node *node, char *msg){
 		return -1;
 	}
 	if(strlen(msg) > MSG_LEN)
-		strncpy(node.msgs.messages[node.msgs.channel_index], msg, MSG_LEN);
+		strncpy(node->msgs.messages[node->msgs.channel_index], msg, MSG_LEN);
 	else
-		strcpy(node.msgs.messages[node.msgs.channel_index], msg);
+		strcpy(node->msgs.messages[node->msgs.channel_index], msg);
 	return 0;
 }
 
 LinkedList *create_list(){
-	LinkedList *list = (LinkedList *) kmalloc(sizeof(*list), GFP_KERNEL);
+	LinkedList *list;
+	list = (LinkedList *) kmalloc(sizeof(*list), GFP_KERNEL);
 	if(list == NULL){
 		PRINT_ERROR("Failed to create list");
         return NULL;	
 	}
 	list->head 	= NULL;
-	list.size  	= 0;
+	list->size  = 0;
 	return list;
 }
 
@@ -90,7 +90,7 @@ int add(LinkedList *list, Node* node){
 	}
 	node->next = list->head;
 	list->head = node;
-	list.size++;
+	list->size++;
 	return 0;
 }
 
@@ -98,14 +98,14 @@ int pop(LinkedList *list){
 	if(list == NULL){
 		PRINT_ERROR("Null pointer argument");
 		return -1;
-	} else if(0 == list.size){
+	} else if(0 == list->size){
 		PRINT_ERROR("Empty list");
 		return -1;
 	}
-
-	Node *p = list->head;
+	Node *p;
+	p = list->head;
 	list->head = p->next;
-	list.size--;
+	list->size--;
 	if(0 > destroy_node(p)){
 		PRINT_ERROR("Failed to destory node");
 		return -1;
@@ -118,9 +118,10 @@ Node* get_node_by_id(LinkedList *list, int id){
 		PRINT_ERROR("Null pointer argument");
 		return NULL;	
 	}
-	Node *p = list->head;
-	for(; p.next != NULL; p = p.next){
-		if(p.msgs.id == id)
+	Node *p;
+	p = list->head;
+	for(; p->next != NULL; p = p->next){
+		if(p->msgs.id == id)
 			return p;
 	}
 	return NULL;
@@ -154,7 +155,8 @@ static int device_open(struct inode *inode, struct file *file) {
     spin_lock_irqsave(&device_info.lock, flags);
 
     int id = file->f_inode->i_ino;
-    Node *p = get_node_by_id(global_list,id);
+	Node *p;
+    p = get_node_by_id(global_list,id);
     if(p == NULL){
     	p = create_node(id);
     	if(p == NULL){
@@ -198,7 +200,8 @@ static ssize_t device_read(	struct file *file, 		/* see include/linux/fs.h 					
 	spin_lock_irqsave(&device_info.lock, flags);
 	
 	/* Find message slot in the list */
-	Node *p = get_node_by_id(global_list, file->f_inode->i_ino);
+	Node *p;
+	p = get_node_by_id(global_list, file->f_inode->i_ino);
 	if(p == NULL){
 		PRINT_ERROR("No message slot available");
 		spin_unlock_irqrestore(&device_info.lock, flags);
@@ -206,7 +209,7 @@ static ssize_t device_read(	struct file *file, 		/* see include/linux/fs.h 					
 	}
 
 	/* Check if messge slot channel is valid */
-	if(p.msgs.channel_index < 0){
+	if(p->msgs.channel_index < 0){
 		PRINT_ERROR("Message slot channel isn't initialized");
 		spin_unlock_irqrestore(&device_info.lock, flags);
 		return -EINVAL;	
@@ -215,7 +218,7 @@ static ssize_t device_read(	struct file *file, 		/* see include/linux/fs.h 					
 	/* Read buffer from user */
 	length = length > MSG_LEN ? MSG_LEN : length;
 	for(i = 0; i < length; ++i){
-		if(0 > put_user(p->msgs.messages[p.msgs.channel_index][i], 
+		if(0 > put_user(p->msgs.messages[p->msgs.channel_index][i], 
 						buffer + i)){
 			PRINT_ERROR("Failed reading data from user");
 			spin_unlock_irqrestore(&device_info.lock, flags);
@@ -245,7 +248,8 @@ static ssize_t device_write(struct file *file,			/* see include/linux/fs.h 					
 	spin_lock_irqsave(&device_info.lock, flags);
 
 	/* Find message slot in the list */
-	Node *p = get_node_by_id(global_list, file->f_inode->i_ino);
+	Node *p;
+	p = get_node_by_id(global_list, file->f_inode->i_ino);
 	if(p == NULL){
 		PRINT_ERROR("No message slot available");
 		spin_unlock_irqrestore(&device_info.lock, flags);
@@ -253,7 +257,7 @@ static ssize_t device_write(struct file *file,			/* see include/linux/fs.h 					
 	}
 
 	/* Check if messge slot channel is valid */
-	if(p.msgs.channel_index < 0){
+	if(p->msgs.channel_index < 0){
 		PRINT_ERROR("Message slot channel isn't initialized");
 		spin_unlock_irqrestore(&device_info.lock, flags);
 		return -EINVAL;	
@@ -263,14 +267,14 @@ static ssize_t device_write(struct file *file,			/* see include/linux/fs.h 					
 	length = length > MSG_LEN ? MSG_LEN : length;
 	for(i = 0; i < MSG_LEN; ++i){
 		if(i < length) {
-			if(0 > get_user(p->msgs.messages[p.msgs.channel_index][i], 
+			if(0 > get_user(p->msgs.messages[p->msgs.channel_index][i], 
 							buffer + i)){
 				PRINT_ERROR("Failed write data to user");
 				spin_unlock_irqrestore(&device_info.lock, flags);
 				return -EINVAL;
 			}
 		} else {
-			p->msgs.messages[p.msgs.channel_index][i] = 0;
+			p->msgs.messages[p->msgs.channel_index][i] = 0;
 		}
 	}
 
@@ -297,7 +301,7 @@ static long device_ioctl(struct file *file,			/* struct inode*  inode */
 			return -EINVAL;	
 		}
 
-		p.msgs.channel_index = (short) ioctl_param;
+		p->msgs.channel_index = (short) ioctl_param;
 		printk("message_slot, ioctl: Set channel_index to: %ld\n", ioctl_param);
     	spin_unlock_irqrestore(&device_info.lock, flags);
     	return SUCCESS;

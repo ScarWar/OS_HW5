@@ -11,7 +11,7 @@
 #define PRINT_ERROR(s) printf("[Error] - %s, %s\n", s, strerror(errno));
 
 int main(int argc, char ** argv) {
-    int fd, ret_val, __n_byte_read;
+    int fd, channel_index, __n_byte_read;
     char buff[MSG_LEN] = {0};
 
     /* Check number of arguments */
